@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, date
-from sqlalchemy import String, DateTime, Date, Integer, Float, Text, Boolean, UniqueConstraint
+from sqlalchemy import String, DateTime, Date, Integer, Float, Text, Boolean, UniqueConstraint, Index
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -137,4 +137,29 @@ class NotificationTarget(Base):
     # filtros opcionais
     disease_filter: Mapped[dict] = mapped_column(JSONB, nullable=True)  # {"in": ["dengue","zika"]}
     geo_filter: Mapped[dict] = mapped_column(JSONB, nullable=True)      # {"in": ["3304557","3550308"]}
+
+class RawSivepGripe(Base):
+    __tablename__ = "raw_sivep_gripe"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
+    year: Mapped[int] = mapped_column(Integer, nullable=False)
+    ref_date: Mapped[date] = mapped_column(Date, nullable=False)
+
+    geo_basis: Mapped[str] = mapped_column(String(20), nullable=False)  # residencia|notificacao
+    municipio_ibge: Mapped[str] = mapped_column(String(50), nullable=False)
+
+    disease: Mapped[str] = mapped_column(String(50), nullable=False, default="srag")
+    external_id: Mapped[str] = mapped_column(String(200), nullable=True)
+
+    raw: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    hash: Mapped[str] = mapped_column(String(64), nullable=False)
+
+    ingested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.utcnow(), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("geo_basis", "hash", name="uq_raw_sivep_gripe_hash"),
+        Index("ix_raw_sivep_gripe_q1", "geo_basis", "municipio_ibge", "ref_date"),
+        Index("ix_raw_sivep_gripe_q2", "year", "ref_date"),
+    )
 

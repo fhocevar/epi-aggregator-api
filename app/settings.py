@@ -19,6 +19,18 @@ class Settings(BaseSettings):
 
     alert_cooldown_minutes: int = 720
 
+    # ✅ OpenDataSUS
+    opendatasus_sivep_srg_csv_url: str = ""
+    opendatasus_sivep_srag_zip_url_2024: str | None = None
+
+    # ✅ eSUS Notifica / OpenSearch
+    esus_opensearch_base_url: str = "https://notifica-prd-es.saude.gov.br"
+    esus_opensearch_user: str | None = None
+    esus_opensearch_password: str | None = None
+    esus_opensearch_timeout_seconds: int = 60
+    esus_opensearch_page_size: int = 200
+    esus_opensearch_max_pages: int = 20
+
     class Config:
         env_file = ".env"
         extra = "ignore"

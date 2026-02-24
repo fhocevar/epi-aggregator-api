@@ -176,7 +176,7 @@ def build_scheduler(get_session_factory):
                     disease=dis,
                     geo_code=geo,
                     cooldown_minutes=settings.alert_cooldown_minutes,
-                    threshold_week_cases=50,
+                    threshold_week_cases=300,
                 )
 
     scheduler.add_job(sync_all, "interval", minutes=settings.sync_interval_minutes)

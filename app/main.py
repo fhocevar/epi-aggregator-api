@@ -3,10 +3,18 @@ from app.routers.epidemiologia import router as epi_router
 from app.db import AsyncSessionLocal
 from app.services.scheduler import build_scheduler
 from app.routers.admin import router as admin_router
+from app.routers.epidemiologia_v2 import router as epi_v2_router
+from app.services.scheduler_v2 import build_scheduler_v2
+from app.routers import datasus
+from app.routers import demas
+from app.routers import esus_notifica
 
 app = FastAPI(title="API de Clipping Epidemiológico", version="0.1.0")
 app.include_router(admin_router)
 app.include_router(epi_router)
+app.include_router(datasus.router)
+app.include_router(demas.router)
+app.include_router(esus_notifica.router)
 
 scheduler = None
 
