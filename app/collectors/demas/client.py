@@ -1,146 +1,146 @@
+# app/collectors/demas/client.py
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any, AsyncIterator
 
+import asyncio
 import httpx
 
 
 @dataclass
 class DemasClient:
-    base_url: str
+    """
+    DEMAS (apidadosabertos.saude.gov.br)
+      - Sem token/login (na prática, vários endpoints públicos)
+      - Paginação: limit + offset
+      - Fail-fast quando upstream/proxy do DEMAS está ruim (502/503/504)
+    """
+    base_url: str = "https://apidadosabertos.saude.gov.br"
     timeout_seconds: int = 60
-    token: str | None = None
-    username: str | None = None
-    password: str | None = None
 
-    async def _get_http(self) -> httpx.AsyncClient:
-        headers = {"Accept": "application/json"}
-        if self.token:
-            headers["Authorization"] = f"Bearer {self.token}"
-        return httpx.AsyncClient(base_url=self.base_url, timeout=self.timeout_seconds, headers=headers)
+    def __post_init__(self):
+        self.base_url = self.base_url.rstrip("/")
 
-    async def login_if_needed(self) -> None:
+    def _make_http(self) -> httpx.AsyncClient:
+        # ⚠️ timeout "cirúrgico": evita ficar 49 min preso
+        timeout = httpx.Timeout(
+            timeout=min(self.timeout_seconds, 20),  # teto global por request
+            connect=5.0,
+            read=min(self.timeout_seconds, 15),
+            write=10.0,
+            pool=5.0,
+        )
+        limits = httpx.Limits(max_connections=10, max_keepalive_connections=5)
+
+        return httpx.AsyncClient(
+            base_url=self.base_url,
+            timeout=timeout,
+            limits=limits,
+            headers={"Accept": "application/json"},
+            follow_redirects=True,
+            trust_env=False,  # ignora HTTP(S)_PROXY do Windows/corp
+        )
+
+    async def ping(self) -> dict[str, Any]:
         """
-        Login só se não tiver token e tiver user/pass.
-        OBS: o payload exato pode variar; deixei bem tolerante.
-        Se seu swagger mostrar outro formato, é só ajustar aqui.
+        Teste rápido: se o DEMAS estiver retornando 502/erro, já sabemos.
         """
-        if self.token or not (self.username and self.password):
-            return
+        async with self._make_http() as http:
+            try:
+                r = await http.get("/", params=None)
+                return {"ok": True, "status_code": r.status_code}
+            except Exception as e:
+                return {"ok": False, "error_type": type(e).__name__, "error": str(e)[:200]}
 
-        async with httpx.AsyncClient(base_url=self.base_url, timeout=self.timeout_seconds) as http:
-            # endpoint mostrado no swagger: POST /autenticacao/login
-            payload_variants = [
-                {"login": self.username, "senha": self.password},
-                {"username": self.username, "password": self.password},
-                {"usuario": self.username, "senha": self.password},
-            ]
-
-            last_err: Exception | None = None
-            for payload in payload_variants:
-                try:
-                    r = await http.post("/autenticacao/login", json=payload, headers={"Accept": "application/json"})
-                    r.raise_for_status()
-                    data = r.json()
-
-                    # tenta achar token nos lugares mais comuns
-                    token = (
-                        data.get("access_token")
-                        or data.get("token")
-                        or data.get("accessToken")
-                        or (data.get("data") or {}).get("access_token")
-                        or (data.get("data") or {}).get("token")
+    async def _get_with_retries(self, http: httpx.AsyncClient, path: str, params: dict[str, Any]) -> Any:
+        # 3 tentativas rápidas. Se for 502/503/504, aborta cedo.
+        last_err: Exception | None = None
+        for attempt in range(3):
+            try:
+                r = await http.get(path, params=params)
+                # se é proxy/gateway quebrado, não insiste por minutos
+                if r.status_code in (502, 503, 504):
+                    raise httpx.HTTPStatusError(
+                        f"Upstream instável ({r.status_code})",
+                        request=r.request,
+                        response=r,
                     )
-                    if not token:
-                        raise ValueError(f"Login OK mas não achei token no JSON: keys={list(data.keys())}")
+                r.raise_for_status()
+                return r.json()
+            except (httpx.ReadTimeout, httpx.ConnectTimeout) as e:
+                last_err = e
+            except httpx.HTTPStatusError as e:
+                # 502/503/504: aborta já
+                if e.response is not None and e.response.status_code in (502, 503, 504):
+                    raise
+                last_err = e
+            except httpx.HTTPError as e:
+                last_err = e
 
-                    self.token = token
-                    return
-                except Exception as e:
-                    last_err = e
+            await asyncio.sleep(0.25 * (attempt + 1))
 
-            raise RuntimeError(f"Falha no login DEMAS. Último erro: {last_err}")
-
-    async def get_json(self, path: str, params: dict[str, Any] | None = None) -> Any:
-        await self.login_if_needed()
-        async with await self._get_http() as http:
-            r = await http.get(path, params=params)
-            r.raise_for_status()
-            return r.json()
+        raise last_err or httpx.HTTPError("Falha ao chamar DEMAS")
 
     async def iter_items(
         self,
         path: str,
+        *,
         base_params: dict[str, Any] | None = None,
-        page_size: int = 1000,
-        max_pages: int = 10_000,
+        limit: int = 20,
+        start_offset: int = 0,
+        max_pages: int = 200,  # ✅ não deixa infinito
+        list_keys: tuple[str, ...] = ("parametros", "items", "data", "results", "macrorregiao_regiao_saude_municipios"),
+        hard_deadline_seconds: int = 20,  # ✅ deadline por endpoint/dataset
     ) -> AsyncIterator[dict[str, Any]]:
-        """
-        Itera em resultados com paginação.
-        Compatível com respostas:
-          - {"items":[...], "page":1, "size":50, "total_items":123}
-          - lista direta [...]
-          - {"data":[...]} / {"results":[...]}
-        Parâmetros de página variam; usamos 'page' e 'size' e também tentamos 'pagina' e 'tamanho'.
-        """
-        await self.login_if_needed()
-
         base_params = dict(base_params or {})
-        page = 1
+        offset = int(base_params.pop("offset", start_offset))
 
-        async with await self._get_http() as http:
+        async with self._make_http() as http:
             for _ in range(max_pages):
                 params = dict(base_params)
+                params["limit"] = int(limit)
+                params["offset"] = int(offset)
 
-                # tenta os formatos mais comuns
-                params.setdefault("page", page)
-                params.setdefault("size", page_size)
+                # ✅ deadline hard (se travar, aborta)
+                data = await asyncio.wait_for(
+                    self._get_with_retries(http, path, params),
+                    timeout=hard_deadline_seconds,
+                )
 
-                r = await http.get(path, params=params)
-                r.raise_for_status()
-                data = r.json()
-
+                # lista direta
                 if isinstance(data, list):
                     if not data:
                         return
                     for item in data:
-                        if isinstance(item, dict):
-                            yield item
-                        else:
-                            yield {"value": item}
+                        yield item if isinstance(item, dict) else {"value": item}
                     return
 
                 if not isinstance(data, dict):
                     return
 
-                items = (
-                    data.get("items")
-                    or data.get("data")
-                    or data.get("results")
-                    or data.get("resultado")
-                    or []
-                )
+                items: list[Any] | None = None
+                for k in list_keys:
+                    v = data.get(k)
+                    if isinstance(v, list):
+                        items = v
+                        break
+
+                # fallback: primeira lista encontrada
+                if items is None:
+                    for v in data.values():
+                        if isinstance(v, list):
+                            items = v
+                            break
 
                 if not items:
                     return
 
                 for item in items:
-                    if isinstance(item, dict):
-                        yield item
-                    else:
-                        yield {"value": item}
+                    yield item if isinstance(item, dict) else {"value": item}
 
-                # heurística de parada:
-                # - se veio "total_items" e já passamos do total, para
-                total = data.get("total_items") or data.get("total") or data.get("count")
-                if total is not None:
-                    # se a API for 1-based, page*size >= total encerra
-                    if page * page_size >= int(total):
-                        return
-
-                # se retornou menos que o page_size, provavelmente acabou
-                if isinstance(items, list) and len(items) < page_size:
+                if len(items) < limit:
                     return
 
-                page += 1
+                # No DEMAS, offset parece ser página (0,1,2...)
+                offset += 1

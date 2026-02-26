@@ -31,6 +31,13 @@ class Settings(BaseSettings):
     esus_opensearch_page_size: int = 200
     esus_opensearch_max_pages: int = 20
 
+    # ✅ DEMAS (Dados Abertos MS)
+    demas_base_url: str = "https://apidadosabertos.saude.gov.br"
+    demas_timeout_seconds: int = 60
+    demas_limit: int = 20
+    demas_sleep_seconds: float = 0.05
+    demas_arboviroses_years: str = "2024,2025,2026"
+
     class Config:
         env_file = ".env"
         extra = "ignore"

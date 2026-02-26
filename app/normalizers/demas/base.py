@@ -1,49 +1,41 @@
 from __future__ import annotations
 
+from datetime import date, datetime
+from hashlib import sha256
 from typing import Any
 
 
-class DemasNormalizer:
-    """
-    Normaliza payload DEMAS para o seu schema unificado do pipeline v2.
-    Ajuste os campos conforme seu modelo (municipio, data_evento, doenca, etc).
-    """
+def _to_date(v: Any) -> date | None:
+    if v is None:
+        return None
+    if isinstance(v, date) and not isinstance(v, datetime):
+        return v
+    if isinstance(v, datetime):
+        return v.date()
+    if isinstance(v, str):
+        # tenta ISO primeiro
+        try:
+            return date.fromisoformat(v[:10])
+        except Exception:
+            pass
+        # tenta dd/mm/aaaa
+        try:
+            d, m, y = v[:10].split("/")
+            return date(int(y), int(m), int(d))
+        except Exception:
+            return None
+    return None
 
-    def normalize(self, raw: dict[str, Any], *, disease: str, source: str = "demas") -> dict[str, Any]:
-        # Heurística: tenta achar município e data em chaves comuns
-        municipio = (
-            raw.get("municipio")
-            or raw.get("municipio_nome")
-            or raw.get("nome_municipio")
-            or raw.get("no_municipio")
-            or raw.get("NM_MUNICIPIO")
-        )
 
-        geocode = (
-            raw.get("geocodigo")
-            or raw.get("codigo_municipio")
-            or raw.get("co_municipio")
-            or raw.get("CO_MUNICIPIO")
-            or raw.get("ibge")
-        )
+def _hash_dict(payload: dict[str, Any]) -> str:
+    import json
 
-        dt = (
-            raw.get("data")
-            or raw.get("dt_notificacao")
-            or raw.get("dt_sintomas")
-            or raw.get("dt_obito")
-            or raw.get("DT_NOTIFIC")
-            or raw.get("DT_EVOLUCA")
-        )
+    blob = json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")
+    return sha256(blob).hexdigest()
 
-        # seu schema unificado (exemplo)
-        return {
-            "source": source,
-            "source_dataset": disease,
-            "disease": disease,
-            "geo_basis": raw.get("geo_basis") or "notificacao",  # você já queria isso
-            "municipio": municipio,
-            "geocode": str(geocode) if geocode is not None else None,
-            "date_event": dt,
-            "raw": raw,  # guarda cru para auditoria/trace
-        }
+
+def _pick_first(payload: dict[str, Any], keys: list[str]) -> Any:
+    for k in keys:
+        if k in payload and payload.get(k) not in (None, ""):
+            return payload.get(k)
+    return None
