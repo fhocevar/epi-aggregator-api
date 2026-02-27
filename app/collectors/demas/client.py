@@ -44,11 +44,19 @@ class DemasClient:
 
     async def ping(self) -> dict[str, Any]:
         """
-        Teste rápido: se o DEMAS estiver retornando 502/erro, já sabemos.
+        Ping rápido e mais fiel: chama um endpoint leve do DEMAS com limit=1.
+        Se isso falhar, tratamos como DEMAS indisponível.
         """
         async with self._make_http() as http:
             try:
-                r = await http.get("/", params=None)
+                # endpoint que você já testou no health antes
+                r = await http.get(
+                    "/macrorregiao-e-regiao-de-saude/municipio",
+                    params={"limit": 1, "offset": 0},
+                )
+                if r.status_code in (502, 503, 504):
+                    return {"ok": False, "status_code": r.status_code, "error_type": "UpstreamBadGateway"}
+                r.raise_for_status()
                 return {"ok": True, "status_code": r.status_code}
             except Exception as e:
                 return {"ok": False, "error_type": type(e).__name__, "error": str(e)[:200]}

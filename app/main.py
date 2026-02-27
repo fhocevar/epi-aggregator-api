@@ -9,6 +9,8 @@ from app.routers import datasus
 from app.routers import demas
 from app.routers import esus_notifica
 from app.routers.cnes import router as cnes_router
+from app.routers import demas_import
+from app.routers import demas_analytics
 
 app = FastAPI(title="API de Clipping Epidemiológico", version="0.1.0")
 app.include_router(admin_router)
@@ -17,6 +19,8 @@ app.include_router(datasus.router)
 app.include_router(demas.router)
 app.include_router(esus_notifica.router)
 app.include_router(cnes_router)
+app.include_router(demas_import.router)
+app.include_router(demas_analytics.router)
 
 scheduler = None
 
