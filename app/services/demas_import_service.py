@@ -19,6 +19,8 @@ from app.demas_models import DemasRaw, DemasEvent
 from app.normalizers.demas.normalizer import DemasNormalizer
 from app.services.demas_sources import DemasSource
 
+from app.db_bulk import save_raw_debug_find_bad_row_on_conflict
+
 
 def _hash_payload(payload: dict[str, Any]) -> str:
     blob = json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")
@@ -98,6 +100,7 @@ class DemasCsvImportResult:
     normalized: int | None = None
     events_saved: int | None = None
     events_duplicates: int | None = None
+    events_failed: int | None = None  # ✅ novo
 
 
 class DemasImportService:
@@ -135,7 +138,7 @@ class DemasImportService:
         now = datetime.now(timezone.utc)
 
         async with self.session_factory() as session:
-            # 2) importa raw em lotes, contando inseridos via RETURNING
+            # 2) importa raw em lotes
             for (_csv_name, csv_bytes) in files:
                 text = _decode_bytes(csv_bytes)
 
@@ -180,43 +183,93 @@ class DemasImportService:
             result.normalized = norm["normalized"]
             result.events_saved = norm["saved"]
             result.events_duplicates = norm["duplicates"]
+            result.events_failed = norm["failed"]
 
         return result
 
     async def _flush_raw(self, session: AsyncSession, rows: list[dict[str, Any]]) -> tuple[int, int]:
+        """
+        Inserção RAW tolerante a duplicados e com debug 1-a-1 quando o bulk quebra.
+        - Duplicados: ON CONFLICT DO NOTHING por (endpoint_name, record_hash) via constraint uq_demas_raw_endpoint_hash
+        - Erros reais (tipos/JSON/data/etc): tenta achar a row ruim e levanta RuntimeError com a row.
+        """
+        if not rows:
+            return (0, 0)
+
+        # Primeiro tenta o caminho rápido (se funcionar, ótimo)
         stmt = (
             insert(DemasRaw)
             .values(rows)
             .on_conflict_do_nothing(constraint="uq_demas_raw_endpoint_hash")
             .returning(DemasRaw.id)
         )
-        res = await session.execute(stmt)
-        inserted = res.scalars().all()
-        s = len(inserted)
-        d = max(0, len(rows) - s)
-        return s, d
+
+        try:
+            res = await session.execute(stmt)
+            inserted = res.scalars().all()
+            s = len(inserted)
+            d = max(0, len(rows) - s)
+            return s, d
+        except Exception:
+            # Cai pro modo debug 1-a-1, MAS mantendo ON CONFLICT DO NOTHING
+            # Precisamos usar index_elements (colunas) aqui, porque a versão pg_insert com constraint
+            # não está exposta nesse helper; então passamos as colunas equivalentes ao unique constraint.
+            inserted_count = await save_raw_debug_find_bad_row_on_conflict(
+                session,
+                DemasRaw,
+                rows,
+                chunk_size=200,
+                conflict_cols=["endpoint_name", "record_hash"],
+            )
+            s = int(inserted_count)
+            d = max(0, len(rows) - s)
+            return s, d
 
     async def _flush_events(self, session: AsyncSession, rows: list[dict[str, Any]]) -> tuple[int, int]:
+        """
+        Mesmo padrão do RAW, agora pros eventos.
+        """
+        if not rows:
+            return (0, 0)
+
         stmt = (
             insert(DemasEvent)
             .values(rows)
             .on_conflict_do_nothing(constraint="uq_demas_events_dataset_fp")
             .returning(DemasEvent.id)
         )
-        res = await session.execute(stmt)
-        inserted = res.scalars().all()
-        s = len(inserted)
-        d = max(0, len(rows) - s)
-        return s, d
 
-    async def normalize_dataset_events(self, *, dataset_key: str, chunk_size: int = 100) -> dict[str, Any]:
+        try:
+            res = await session.execute(stmt)
+            inserted = res.scalars().all()
+            s = len(inserted)
+            d = max(0, len(rows) - s)
+            return s, d
+        except Exception:
+            inserted_count = await save_raw_debug_find_bad_row_on_conflict(
+                session,
+                DemasEvent,
+                rows,
+                chunk_size=200,
+                conflict_cols=["dataset", "fingerprint"],
+            )
+            s = int(inserted_count)
+            d = max(0, len(rows) - s)
+            return s, d
+
+    # -------------------------
+    # ✅ Normalização em chunks + tolerante a falhas
+    # -------------------------
+    async def normalize_dataset_events(self, *, dataset_key: str, chunk_size: int = 500) -> dict[str, Any]:
         normalized = 0
         saved = 0
         duplicates = 0
+        failed = 0
         now = datetime.now(timezone.utc)
 
         async with self.session_factory() as session:
             last_id = 0
+
             while True:
                 q = (
                     select(DemasRaw)
@@ -230,33 +283,42 @@ class DemasImportService:
 
                 last_id = rows[-1].id
 
-                batch_events: list[dict[str, Any]] = []
+                batch: list[dict[str, Any]] = []
                 for r in rows:
-                    ev = self.normalizer.normalize_event(dataset_key=dataset_key, item=r.payload)
-                    normalized += 1
-                    batch_events.append(
-                        {
-                            "dataset": ev["dataset"],
-                            "event_date": ev["event_date"],
-                            "epiweek": ev["epiweek"],
-                            "year": ev["year"],
-                            "uf": ev["uf"],
-                            "municipio_ibge": ev["municipio_ibge"],
-                            "municipio_nome": ev["municipio_nome"],
-                            "fingerprint": ev["fingerprint"],
-                            "payload": ev["payload"],
-                            "normalized_at": now,
-                        }
-                    )
+                    try:
+                        ev = self.normalizer.normalize_event(dataset_key=dataset_key, item=r.payload)
+                        normalized += 1
+                        batch.append(
+                            {
+                                "dataset": ev["dataset"],
+                                "event_date": ev["event_date"],
+                                "epiweek": ev["epiweek"],
+                                "year": ev["year"],
+                                "uf": ev["uf"],
+                                "municipio_ibge": ev["municipio_ibge"],
+                                "municipio_nome": ev["municipio_nome"],
+                                "fingerprint": ev["fingerprint"],
+                                "payload": ev["payload"],
+                                "normalized_at": now,
+                            }
+                        )
+                    except Exception:
+                        failed += 1
 
-                if batch_events:
-                    s, d = await self._flush_events(session, batch_events)
+                if batch:
+                    s, d = await self._flush_events(session, batch)
                     saved += s
                     duplicates += d
 
             await session.commit()
 
-        return {"dataset": dataset_key, "normalized": normalized, "saved": saved, "duplicates": duplicates}
+        return {
+            "dataset": dataset_key,
+            "normalized": normalized,
+            "saved": saved,
+            "duplicates": duplicates,
+            "failed": failed,
+        }
 
     # -------------------------
     # Opção 3: baixar de URL (S3/HTTP) e importar
@@ -326,6 +388,7 @@ class DemasImportService:
                         "normalized": res.normalized,
                         "events_saved": res.events_saved,
                         "events_duplicates": res.events_duplicates,
+                        "events_failed": res.events_failed,
                     }
                 )
                 ok += 1

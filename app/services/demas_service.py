@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 import asyncio
 from dataclasses import dataclass
-from datetime import datetime, timezone, date
+from datetime import datetime, timezone
 from hashlib import sha256
 from typing import Any, Iterable
 
@@ -35,7 +35,12 @@ DEMAS_DATASETS: list[DemasDataset] = [
     DemasDataset("arboviroses_dengue", "/arboviroses/dengue", uses_year=True, kind="events"),
     DemasDataset("arboviroses_chikungunya", "/arboviroses/chikungunya", uses_year=True, kind="events"),
     DemasDataset("arboviroses_zikavirus", "/arboviroses/zikavirus", uses_year=True, kind="events"),
-    DemasDataset("arboviroses_febre_amarela", "/arboviroses/febre-amarela-humanos-primatas-nao-humanos", uses_year=True, kind="events"),
+    DemasDataset(
+        "arboviroses_febre_amarela",
+        "/arboviroses/febre-amarela-humanos-primatas-nao-humanos",
+        uses_year=True,
+        kind="events",
+    ),
     DemasDataset("sg_2020", "/vigilancia-e-meio-ambiente/notificacoes-de-sindrome-gripal-leve-2020", kind="events"),
     DemasDataset("sg_2021", "/vigilancia-e-meio-ambiente/notificacoes-de-sindrome-gripal-leve-2021", kind="events"),
     DemasDataset("sg_2022", "/vigilancia-e-meio-ambiente/notificacoes-de-sindrome-gripal-leve-2022", kind="events"),
@@ -59,6 +64,8 @@ class DemasSyncService:
         sleep_seconds: float = 0.05,
         arboviroses_years: list[int] | None = None,
         dataset_deadline_seconds: int = 25,  # ✅ por dataset
+        raw_chunk_size: int = 500,  # ✅ batch insert raw
+        events_chunk_size: int = 500,  # ✅ batch normalize/insert events
     ):
         self.session_factory = session_factory
         self.base_url = base_url.rstrip("/")
@@ -67,6 +74,9 @@ class DemasSyncService:
         self.sleep_seconds = sleep_seconds
         self.arboviroses_years = arboviroses_years or [2024, 2025, 2026]
         self.dataset_deadline_seconds = dataset_deadline_seconds
+
+        self.raw_chunk_size = raw_chunk_size
+        self.events_chunk_size = events_chunk_size
 
         self.client = DemasClient(base_url=self.base_url, timeout_seconds=self.timeout_seconds)
         self.collector = DemasCollector(client=self.client, limit=self.limit)
@@ -93,10 +103,30 @@ class DemasSyncService:
 
         return await self.collector.collect_all(ds.path, params=params)
 
-    async def sync_dataset_raw(self, ds: DemasDataset) -> dict[str, Any]:
+    async def _flush_raw_batch(self, session: AsyncSession, rows: list[dict[str, Any]]) -> tuple[int, int]:
+        """
+        ✅ bulk insert com RETURNING pra contar inseridos vs duplicados.
+        """
+        stmt = (
+            insert(DemasRaw)
+            .values(rows)
+            .on_conflict_do_nothing(constraint="uq_demas_raw_endpoint_hash")
+            .returning(DemasRaw.id)
+        )
+        res = await session.execute(stmt)
+        inserted = res.scalars().all()
+        s = len(inserted)
+        d = max(0, len(rows) - s)
+        return s, d
+
+    async def sync_dataset_raw(self, ds: DemasDataset, *, chunk_size: int | None = None) -> dict[str, Any]:
+        """
+        ✅ Ajustado: em vez de inserir 1 a 1, faz bulk insert em chunks (muito mais rápido).
+        """
         fetched = 0
         saved = 0
         duplicates = 0
+        chunk_size = chunk_size or self.raw_chunk_size
 
         async with self.session_factory() as session:
             years: Iterable[int | None] = self.arboviroses_years if ds.uses_year else [None]
@@ -105,76 +135,117 @@ class DemasSyncService:
                 items = await self._collect_items_for_dataset(ds, year=y)
                 fetched += len(items)
 
+                batch: list[dict[str, Any]] = []
+                now = datetime.now(timezone.utc)
+
                 for it in items:
                     h = _hash_payload(it)
-                    row = {
-                        "endpoint_name": ds.key,
-                        "request_year": y,
-                        "request_limit": self.limit,
-                        "request_offset": None,
-                        "record_hash": h,
-                        "payload": it,
-                        "collected_at": datetime.now(timezone.utc),
-                    }
-
-                    stmt = (
-                        insert(DemasRaw)
-                        .values(**row)
-                        .on_conflict_do_nothing(constraint="uq_demas_raw_endpoint_hash")
+                    batch.append(
+                        {
+                            "endpoint_name": ds.key,
+                            "request_year": y,
+                            "request_limit": self.limit,
+                            "request_offset": None,
+                            "record_hash": h,
+                            "payload": it,
+                            "collected_at": now,
+                        }
                     )
-                    res = await session.execute(stmt)
-                    if res.rowcount and res.rowcount > 0:
-                        saved += 1
-                    else:
-                        duplicates += 1
+
+                    if len(batch) >= chunk_size:
+                        s, d = await self._flush_raw_batch(session, batch)
+                        saved += s
+                        duplicates += d
+                        batch = []
+
+                    if self.sleep_seconds:
+                        # mantém seu throttling (se necessário)
+                        await asyncio.sleep(self.sleep_seconds)
+
+                if batch:
+                    s, d = await self._flush_raw_batch(session, batch)
+                    saved += s
+                    duplicates += d
 
             await session.commit()
 
         return {"dataset": ds.key, "fetched": fetched, "saved": saved, "duplicates": duplicates}
 
-    async def normalize_dataset_events(self, ds: DemasDataset) -> dict[str, Any]:
+    async def normalize_dataset_events(self, ds: DemasDataset, *, chunk_size: int | None = None) -> dict[str, Any]:
+        """
+        ✅ Ajustado: normaliza em chunks (por id) + tolera falhas item-a-item + bulk insert.
+        """
         if ds.kind != "events":
             return {"dataset": ds.key, "skipped": True, "reason": f"kind={ds.kind}"}
 
         normalized = 0
         saved = 0
         duplicates = 0
+        failed = 0
+        chunk_size = chunk_size or self.events_chunk_size
+        now = datetime.now(timezone.utc)
 
         async with self.session_factory() as session:
-            q = select(DemasRaw).where(DemasRaw.endpoint_name == ds.key)
-            rows = (await session.execute(q)).scalars().all()
+            last_id = 0
 
-            for r in rows:
-                ev = self.normalizer.normalize_event(dataset_key=ds.key, item=r.payload)
-
-                row = {
-                    "dataset": ev["dataset"],
-                    "event_date": ev["event_date"],
-                    "epiweek": ev["epiweek"],
-                    "year": ev["year"],
-                    "uf": ev["uf"],
-                    "municipio_ibge": ev["municipio_ibge"],
-                    "municipio_nome": ev["municipio_nome"],
-                    "fingerprint": ev["fingerprint"],
-                    "payload": ev["payload"],
-                    "normalized_at": datetime.now(timezone.utc),
-                }
-                normalized += 1
-
-                stmt = (
-                    insert(DemasEvent)
-                    .values(**row)
-                    .on_conflict_do_nothing(constraint="uq_demas_events_dataset_fp")
+            while True:
+                q = (
+                    select(DemasRaw)
+                    .where(DemasRaw.endpoint_name == ds.key, DemasRaw.id > last_id)
+                    .order_by(DemasRaw.id.asc())
+                    .limit(chunk_size)
                 )
-                res = await session.execute(stmt)
-                if res.rowcount and res.rowcount > 0:
-                    saved += 1
-                else:
-                    duplicates += 1
+                rows = (await session.execute(q)).scalars().all()
+                if not rows:
+                    break
+
+                last_id = rows[-1].id
+
+                batch: list[dict[str, Any]] = []
+                for r in rows:
+                    try:
+                        ev = self.normalizer.normalize_event(dataset_key=ds.key, item=r.payload)
+                        normalized += 1
+                        batch.append(
+                            {
+                                "dataset": ev["dataset"],
+                                "event_date": ev["event_date"],
+                                "epiweek": ev["epiweek"],
+                                "year": ev["year"],
+                                "uf": ev["uf"],
+                                "municipio_ibge": ev["municipio_ibge"],
+                                "municipio_nome": ev["municipio_nome"],
+                                "fingerprint": ev["fingerprint"],
+                                "payload": ev["payload"],
+                                "normalized_at": now,
+                            }
+                        )
+                    except Exception:
+                        failed += 1
+
+                if batch:
+                    stmt = (
+                        insert(DemasEvent)
+                        .values(batch)
+                        .on_conflict_do_nothing(constraint="uq_demas_events_dataset_fp")
+                        .returning(DemasEvent.id)
+                    )
+                    res = await session.execute(stmt)
+                    inserted = res.scalars().all()
+                    s = len(inserted)
+                    d = max(0, len(batch) - s)
+                    saved += s
+                    duplicates += d
 
             await session.commit()
 
-        return {"dataset": ds.key, "normalized": normalized, "saved": saved, "duplicates": duplicates}
+        return {
+            "dataset": ds.key,
+            "normalized": normalized,
+            "saved": saved,
+            "duplicates": duplicates,
+            "failed": failed,
+        }
 
     async def sync_municipios_dim(self) -> dict[str, Any]:
         ds = self._dataset_by_key("macrorregiao_municipio")
