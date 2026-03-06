@@ -1,7 +1,5 @@
 from __future__ import annotations
-
 from typing import Any, Dict, Optional
-
 
 def _to_int(x: Any) -> Optional[int]:
     if x is None:
@@ -11,7 +9,6 @@ def _to_int(x: Any) -> Optional[int]:
     except Exception:
         return None
 
-
 def _to_float(x: Any) -> Optional[float]:
     if x is None:
         return None
@@ -19,7 +16,6 @@ def _to_float(x: Any) -> Optional[float]:
         return float(x)
     except Exception:
         return None
-
 
 def normalize_infodengue_row(
     row: Dict[str, Any],
@@ -35,18 +31,16 @@ def normalize_infodengue_row(
     e nem sempre traz year/epiweek separados.
     """
 
-    # 1) Primeiro tenta extrair do "SE" (YYYYWW) que é o mais confiável
     se = row.get("SE") or row.get("se") or row.get("EW") or row.get("epiweek")
     se_int = _to_int(se)
 
     year = _to_int(row.get("year") or row.get("ano") or row.get("epiyear") or row.get("EY"))
     epiweek = _to_int(row.get("epiweek") or row.get("semana") or row.get("week") or row.get("EW"))
 
-    if se_int and se_int >= 100000:  # YYYYWW
+    if se_int and se_int >= 100000:
         year = se_int // 100
         epiweek = se_int % 100
 
-    # 2) Casos: prioriza "casos" (reportado). Se não tiver, cai pra estimado.
     cases = row.get("casos")
     if cases is None:
         cases = row.get("cases")
@@ -54,7 +48,6 @@ def normalize_infodengue_row(
         cases = row.get("casos_est")
     cases_i = _to_int(cases) or 0
 
-    # 3) Incidência / Rt / nível
     incidence_100k = _to_float(
         row.get("p_inc100k") or row.get("incidencia") or row.get("incidence") or row.get("incidencia_100k")
     )

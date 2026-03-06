@@ -1,11 +1,8 @@
 from __future__ import annotations
-
 from datetime import date, timedelta
-
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select, func, case, text
 from sqlalchemy.ext.asyncio import AsyncSession
-
 from app.settings import settings
 from app.db import AsyncSessionLocal, get_db
 from app.collectors.esus_notifica.client import EsusNotificaClient
@@ -15,9 +12,6 @@ from app.services.esus_notifica_service import EsusNotificaService
 from app.models import RawSivepGripe
 
 router = APIRouter(prefix="/esus-notifica", tags=["e-SUS Notifica (OpenSearch)"])
-
-
-# ---------- SERVICE FACTORY (INGEST) ----------
 
 def _service() -> EsusNotificaService:
     if not settings.esus_opensearch_user or not settings.esus_opensearch_password:
@@ -45,9 +39,6 @@ def _service() -> EsusNotificaService:
         session_factory=AsyncSessionLocal,
     )
 
-
-# ---------- INGEST / HEALTH ----------
-
 @router.get("/health")
 async def health():
     """
@@ -57,7 +48,6 @@ async def health():
     df = (date.today() - timedelta(days=2)).isoformat()
     result = await svc.sync(uf=None, date_from=df, date_to=None)
     return {"status": "ok", **result}
-
 
 @router.post("/sync")
 async def sync(
@@ -78,7 +68,6 @@ async def sync(
         geo_basis=geo_basis,
         disease=disease,
     )
-
 
 @router.post("/preview")
 async def preview(
@@ -110,9 +99,6 @@ async def preview(
     hits = hits[:limit]
 
     return {"status_code": 200, "total_items": len(hits), "items": hits}
-
-
-# ---------- CONSULTA RAW (DEBUG) ----------
 
 @router.get("/raw")
 async def list_raw(
@@ -158,9 +144,6 @@ async def list_raw(
         ],
     }
 
-
-# ---------- SUMMARY (ÚTIL PRA HUMANOS) ----------
-
 @router.get("/raw/summary")
 async def raw_summary(
     date_from: date | None = Query(default=None),
@@ -170,7 +153,7 @@ async def raw_summary(
     session: AsyncSession = Depends(get_db),
 ):
     """
-    Sumário agregado dos dados RAW (endpoint humano).
+    Sumário agregado dos dados RAW (crus).
     """
     filters = []
 
@@ -186,11 +169,9 @@ async def raw_summary(
     if date_to:
         filters.append(RawSivepGripe.ref_date <= date_to)
 
-    # total
     total_stmt = select(func.count()).select_from(RawSivepGripe).where(*filters)
     total = (await session.execute(total_stmt)).scalar()
 
-    # por geo_basis
     geo_basis_stmt = (
         select(RawSivepGripe.geo_basis, func.count().label("count"))
         .where(*filters)
@@ -198,7 +179,6 @@ async def raw_summary(
     )
     geo_basis_rows = (await session.execute(geo_basis_stmt)).all()
 
-    # top municípios
     municipios_stmt = (
         select(
             RawSivepGripe.municipio_ibge,
@@ -237,7 +217,7 @@ async def raw_insights(
     session: AsyncSession = Depends(get_db),
 ):
     """
-    Insights mais humanos: headline + evolução diária + concentração + top municípios.
+    Insights: headline + evolução diária + concentração + top municípios.
     """
     filters = []
     if disease:
@@ -249,18 +229,15 @@ async def raw_insights(
     if date_to:
         filters.append(RawSivepGripe.ref_date <= date_to)
 
-    # total
     total_stmt = select(func.count()).select_from(RawSivepGripe).where(*filters)
     total = int((await session.execute(total_stmt)).scalar() or 0)
 
-    # janela
     win_stmt = select(
         func.min(RawSivepGripe.ref_date),
         func.max(RawSivepGripe.ref_date),
     ).where(*filters)
     min_ref, max_ref = (await session.execute(win_stmt)).one()
 
-    # por dia
     daily_stmt = (
         select(RawSivepGripe.ref_date, func.count().label("count"))
         .where(*filters)
@@ -269,7 +246,6 @@ async def raw_insights(
     )
     daily_rows = (await session.execute(daily_stmt)).all()
 
-    # top municipios
     top_stmt = (
         select(RawSivepGripe.municipio_ibge, func.count().label("count"))
         .where(*filters)
@@ -286,8 +262,6 @@ async def raw_insights(
     def pct(a: int, b: int) -> float:
         return round((a / b) * 100, 2) if b else 0.0
 
-    # “UF” pelo prefixo do IBGE (2 primeiros dígitos)
-    # (isso NÃO dá o nome do município; só ajuda a enxergar estado)
     uf_map = {
         "11": "RO", "12": "AC", "13": "AM", "14": "RR", "15": "PA", "16": "AP", "17": "TO",
         "21": "MA", "22": "PI", "23": "CE", "24": "RN", "25": "PB", "26": "PE", "27": "AL", "28": "SE", "29": "BA",
@@ -309,7 +283,6 @@ async def raw_insights(
             }
         )
 
-    # headline humano
     if total == 0:
         headline = "Nenhum registro encontrado com os filtros atuais."
     else:

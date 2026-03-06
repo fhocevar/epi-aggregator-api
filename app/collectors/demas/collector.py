@@ -1,10 +1,7 @@
 # app/collectors/demas/collector.py
 from __future__ import annotations
-
 from typing import Any
-
 from app.collectors.demas.client import DemasClient
-
 
 class DemasCollector:
     def __init__(self, client: DemasClient, *, limit: int = 20):

@@ -1,7 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-
 from app.db import get_db
 from app.models import IngestionTarget, NotificationTarget
 from app.schemas import (
@@ -10,7 +9,6 @@ from app.schemas import (
 )
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
-
 
 @router.get("/targets", response_model=list[IngestionTargetOut])
 async def list_targets(db: AsyncSession = Depends(get_db)):
@@ -31,10 +29,9 @@ async def list_targets(db: AsyncSession = Depends(get_db)):
         for r in rows
     ]
 
-
 @router.post("/targets", response_model=IngestionTargetOut, status_code=201)
 async def create_target(payload: IngestionTargetCreate, db: AsyncSession = Depends(get_db)):
-    # valida básica do disease
+
     if payload.source_code == "INFODENGUE" and payload.disease not in ("dengue", "chikungunya", "zika"):
         raise HTTPException(status_code=400, detail="disease inválida para INFODENGUE (use dengue|chikungunya|zika).")
 
@@ -43,7 +40,6 @@ async def create_target(payload: IngestionTargetCreate, db: AsyncSession = Depen
     await db.commit()
     await db.refresh(row)
     return {**payload.model_dump(), "id": str(row.id)}
-
 
 @router.delete("/targets/{target_id}", status_code=204)
 async def delete_target(target_id: str, db: AsyncSession = Depends(get_db)):
@@ -54,7 +50,6 @@ async def delete_target(target_id: str, db: AsyncSession = Depends(get_db)):
     await db.delete(row)
     await db.commit()
     return None
-
 
 @router.get("/notifications", response_model=list[NotificationTargetOut])
 async def list_notifications(db: AsyncSession = Depends(get_db)):
@@ -72,7 +67,6 @@ async def list_notifications(db: AsyncSession = Depends(get_db)):
         }
         for r in rows
     ]
-
 
 @router.post("/notifications", response_model=NotificationTargetOut, status_code=201)
 async def create_notification(payload: NotificationTargetCreate, db: AsyncSession = Depends(get_db)):

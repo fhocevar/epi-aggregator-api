@@ -1,35 +1,29 @@
 # app/services/demas_service.py
 from __future__ import annotations
-
 import json
 import asyncio
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from hashlib import sha256
 from typing import Any, Iterable
-
 from sqlalchemy import select, func, and_
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.dialects.postgresql import insert
-
 from app.collectors.demas.client import DemasClient
 from app.collectors.demas.collector import DemasCollector
 from app.demas_models import DemasRaw, DemasEvent, DemasMunicipioDim
 from app.normalizers.demas.normalizer import DemasNormalizer
 
-
 def _hash_payload(payload: dict[str, Any]) -> str:
     blob = json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")
     return sha256(blob).hexdigest()
-
 
 @dataclass(frozen=True)
 class DemasDataset:
     key: str
     path: str
     uses_year: bool = False
-    kind: str = "events"  # events|dim|raw_only
-
+    kind: str = "events"
 
 DEMAS_DATASETS: list[DemasDataset] = [
     DemasDataset("arboviroses_dengue", "/arboviroses/dengue", uses_year=True, kind="events"),
@@ -48,10 +42,8 @@ DEMAS_DATASETS: list[DemasDataset] = [
     DemasDataset("sg_2024", "/vigilancia-e-meio-ambiente/notificacoes-de-sindrome-gripal-leve-2024", kind="events"),
     DemasDataset("srag_2019_2026", "/vigilancia-e-meio-ambiente/srag-2019-2026", kind="events"),
     DemasDataset("macrorregiao_municipio", "/macrorregiao-e-regiao-de-saude/municipio", kind="dim"),
-    # CNES (Swagger é /v1; na prática pode existir sem /v1 — tentamos os 2)
     DemasDataset("cnes_estabelecimentos", "/v1/cnes/estabelecimentos", kind="raw_only"),
 ]
-
 
 class DemasSyncService:
     def __init__(
@@ -63,9 +55,9 @@ class DemasSyncService:
         limit: int = 20,
         sleep_seconds: float = 0.05,
         arboviroses_years: list[int] | None = None,
-        dataset_deadline_seconds: int = 25,  # ✅ por dataset
-        raw_chunk_size: int = 500,  # ✅ batch insert raw
-        events_chunk_size: int = 500,  # ✅ batch normalize/insert events
+        dataset_deadline_seconds: int = 25,
+        raw_chunk_size: int = 500,
+        events_chunk_size: int = 500,
     ):
         self.session_factory = session_factory
         self.base_url = base_url.rstrip("/")
@@ -74,15 +66,11 @@ class DemasSyncService:
         self.sleep_seconds = sleep_seconds
         self.arboviroses_years = arboviroses_years or [2024, 2025, 2026]
         self.dataset_deadline_seconds = dataset_deadline_seconds
-
         self.raw_chunk_size = raw_chunk_size
         self.events_chunk_size = events_chunk_size
-
         self.client = DemasClient(base_url=self.base_url, timeout_seconds=self.timeout_seconds)
         self.collector = DemasCollector(client=self.client, limit=self.limit)
         self.normalizer = DemasNormalizer()
-
-        # daily: tudo menos dim (municipios vai no weekly)
         self.datasets_daily = [d for d in DEMAS_DATASETS if d.kind != "dim"]
 
     def _dataset_by_key(self, key: str) -> DemasDataset | None:
@@ -93,7 +81,6 @@ class DemasSyncService:
         if ds.uses_year and year is not None:
             params["nu_ano"] = str(year)
 
-        # CNES: tenta /v1 e fallback sem /v1
         if ds.key.startswith("cnes_") and ds.path.startswith("/v1/"):
             try:
                 return await self.collector.collect_all(ds.path, params=params)
@@ -159,7 +146,6 @@ class DemasSyncService:
                         batch = []
 
                     if self.sleep_seconds:
-                        # mantém seu throttling (se necessário)
                         await asyncio.sleep(self.sleep_seconds)
 
                 if batch:

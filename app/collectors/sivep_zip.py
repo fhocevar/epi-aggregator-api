@@ -1,5 +1,4 @@
 from __future__ import annotations
-
 import csv
 import hashlib
 import json
@@ -9,16 +8,13 @@ import uuid
 import zipfile
 from datetime import date, datetime
 from typing import Dict, Optional
-
 import httpx
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-
 def _sha256_dict(d: Dict) -> str:
     raw = json.dumps(d, sort_keys=True, ensure_ascii=False).encode("utf-8")
     return hashlib.sha256(raw).hexdigest()
-
 
 def _parse_date_pt(v: str) -> Optional[date]:
     if not v:
@@ -30,7 +26,6 @@ def _parse_date_pt(v: str) -> Optional[date]:
         except Exception:
             pass
     return None
-
 
 async def ingest_sivep_srag_from_zip_url(
     db: AsyncSession,
@@ -83,11 +78,9 @@ async def ingest_sivep_srag_from_zip_url(
             if not csv_names:
                 raise RuntimeError(f"ZIP não contém CSV. Conteúdo: {zf.namelist()[:20]}")
 
-            # Heurística: pega o maior CSV
             csv_names.sort(key=lambda n: zf.getinfo(n).file_size, reverse=True)
             csv_name = csv_names[0]
 
-            # 3) lê CSV em streaming
             with zf.open(csv_name, "r") as raw_fp:
                 # SRAG costuma vir em Latin-1/ISO-8859-1
                 # e separado por ';'
@@ -95,14 +88,12 @@ async def ingest_sivep_srag_from_zip_url(
                 reader = csv.DictReader(text_fp, delimiter=";")
 
                 for row in reader:
-                    # data de referência: DT_NOTIFIC
                     dref = _parse_date_pt(row.get("DT_NOTIFIC", ""))
                     if not dref:
                         continue
                     if dref < date_from or dref > date_to:
                         continue
 
-                    # município
                     if geo_basis == "residencia":
                         municipio = (row.get("CO_MUN_RES") or "").strip()
                     else:
@@ -111,7 +102,6 @@ async def ingest_sivep_srag_from_zip_url(
                     if not municipio:
                         continue
 
-                    # hash idempotente: reduz row para campos-chave + year
                     minimal = {
                         "year": year,
                         "DT_NOTIFIC": row.get("DT_NOTIFIC"),

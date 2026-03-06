@@ -1,6 +1,5 @@
 # app/services/demas_import_service.py
 from __future__ import annotations
-
 import csv
 import io
 import json
@@ -9,23 +8,18 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from hashlib import sha256
 from typing import Any, Iterable
-
 import httpx
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
-
 from app.demas_models import DemasRaw, DemasEvent
 from app.normalizers.demas.normalizer import DemasNormalizer
 from app.services.demas_sources import DemasSource
-
 from app.db_bulk import save_raw_debug_find_bad_row_on_conflict
-
 
 def _hash_payload(payload: dict[str, Any]) -> str:
     blob = json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")
     return sha256(blob).hexdigest()
-
 
 def _decode_bytes(content: bytes) -> str:
     # CSV do governo frequentemente vem em latin-1 ou utf-8-sig
@@ -35,7 +29,6 @@ def _decode_bytes(content: bytes) -> str:
         except Exception:
             pass
     return content.decode("utf-8", errors="replace")
-
 
 def _sniff_dialect(sample: str) -> csv.Dialect:
     try:
@@ -50,7 +43,6 @@ def _sniff_dialect(sample: str) -> csv.Dialect:
             lineterminator = "\n"
             quoting = csv.QUOTE_MINIMAL
         return Default()
-
 
 def _iter_csv_dicts(text: str) -> Iterable[dict[str, Any]]:
     cleaned = text.replace("\x00", "")
@@ -81,7 +73,6 @@ def _iter_csv_dicts(text: str) -> Iterable[dict[str, Any]]:
         if out:
             yield out
 
-
 def _extract_csvs_from_zip(content: bytes) -> list[tuple[str, bytes]]:
     out: list[tuple[str, bytes]] = []
     with zipfile.ZipFile(io.BytesIO(content)) as z:
@@ -89,7 +80,6 @@ def _extract_csvs_from_zip(content: bytes) -> list[tuple[str, bytes]]:
             if name.lower().endswith(".csv"):
                 out.append((name, z.read(name)))
     return out
-
 
 @dataclass
 class DemasCsvImportResult:
@@ -101,7 +91,6 @@ class DemasCsvImportResult:
     events_saved: int | None = None
     events_duplicates: int | None = None
     events_failed: int | None = None  # ✅ novo
-
 
 class DemasImportService:
     def __init__(self, *, session_factory: async_sessionmaker[AsyncSession]):
@@ -138,7 +127,6 @@ class DemasImportService:
         now = datetime.now(timezone.utc)
 
         async with self.session_factory() as session:
-            # 2) importa raw em lotes
             for (_csv_name, csv_bytes) in files:
                 text = _decode_bytes(csv_bytes)
 
@@ -258,7 +246,7 @@ class DemasImportService:
             return s, d
 
     # -------------------------
-    # ✅ Normalização em chunks + tolerante a falhas
+    # ✅ Normalização em chunks (pedaços) + tolerante a falhas
     # -------------------------
     async def normalize_dataset_events(self, *, dataset_key: str, chunk_size: int = 500) -> dict[str, Any]:
         normalized = 0
@@ -337,7 +325,7 @@ class DemasImportService:
             timeout=httpx.Timeout(timeout_seconds, connect=30.0, read=timeout_seconds),
             follow_redirects=True,
             headers={"Accept": "*/*"},
-            trust_env=False,  # importante em Windows/corp
+            trust_env=False,
         ) as client:
             r = await client.get(url)
             r.raise_for_status()

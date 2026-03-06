@@ -1,13 +1,9 @@
 from __future__ import annotations
-
 from datetime import datetime
-
 from apscheduler.triggers.cron import CronTrigger
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
-
 from app.services.demas_import_service import DemasImportService
 from app.services.demas_sources import DEMAS_S3_SOURCES
-
 
 def register_demas_s3_jobs(scheduler, session_factory: async_sessionmaker[AsyncSession]) -> None:
     """
@@ -32,7 +28,6 @@ def register_demas_s3_jobs(scheduler, session_factory: async_sessionmaker[AsyncS
         max_instances=1,
         coalesce=True,
     )
-
 
 async def run_demas_s3_bulk_import(session_factory: async_sessionmaker[AsyncSession]) -> dict:
     """

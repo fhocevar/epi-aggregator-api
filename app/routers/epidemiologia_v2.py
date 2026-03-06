@@ -1,17 +1,14 @@
 from datetime import date
 from typing import Literal, Optional
-
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
-
 from app.db import get_db
 
 router = APIRouter(prefix="/epi/v2", tags=["Epidemiologia v2"])
 
 GeoBasis = Literal["residencia", "notificacao"]
 Granularity = Literal["municipio", "uf", "br"]
-
 
 @router.get("/series")
 async def series(
@@ -59,7 +56,6 @@ async def series(
     rows = [dict(r) for r in result.mappings().all()]
     return {"status_code": 200, "message": "consulta realizada com sucesso", "total_items": len(rows), "items": rows}
 
-
 @router.get("/latest")
 async def latest(
     disease: str = Query(...),
@@ -100,7 +96,6 @@ async def latest(
     })
     row = result.mappings().first()
     return {"status_code": 200, "message": "consulta realizada com sucesso", "item": dict(row) if row else None}
-
 
 @router.get("/meta/coverage")
 async def coverage(

@@ -1,9 +1,6 @@
 from __future__ import annotations
-
 from typing import Any
-
 from app.collectors.esus_notifica.client import EsusNotificaClient
-
 
 class EsusNotificaCollector:
     def __init__(self, client: EsusNotificaClient, *, page_size: int = 200, max_pages: int = 20):
@@ -37,9 +34,7 @@ class EsusNotificaCollector:
         """
         filters: list[dict[str, Any]] = []
 
-        # alguns índices têm UF em campos variados; como a UF já está no índice, isso é opcional
         if uf:
-            # mantemos como "should" para não travar caso campo não exista
             filters.append({"bool": {"should": [{"term": {"estado": uf.upper()}}, {"term": {"uf": uf.upper()}}], "minimum_should_match": 1}})
 
         if date_from or date_to:
@@ -55,7 +50,6 @@ class EsusNotificaCollector:
             "size": size,
             "_source": True,
             "track_total_hits": True,
-            # sort simples para estabilidade
             "sort": [{"dataNotificacao": "desc"}],
             "query": {"bool": {"filter": filters}} if filters else {"match_all": {}},
         }
@@ -87,7 +81,6 @@ class EsusNotificaCollector:
 
             all_hits.extend(hits)
 
-            # se veio menos que o page_size, acabou
             if len(hits) < self.page_size:
                 break
 

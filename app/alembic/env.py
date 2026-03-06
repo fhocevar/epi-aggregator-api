@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 from sqlalchemy import engine_from_config, pool
 from sqlalchemy.engine import Connection
 
-from app.models import Base  # seu Base está em app/models.py
+from app.models import Base
 
 load_dotenv()
 
@@ -21,7 +21,6 @@ def get_url() -> str:
     url = os.getenv("DATABASE_URL")
     if not url:
         raise RuntimeError("DATABASE_URL não definido (confira seu .env)")
-    # Alembic/autogenerate usa driver sync -> remove +asyncpg
     return url.replace("+asyncpg", "")
 
 

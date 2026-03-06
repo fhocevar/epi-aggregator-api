@@ -5,7 +5,6 @@ async def fetch_who_dons(base_url: str) -> list[dict]:
         r = await client.get(base_url, headers={"Accept": "application/json"})
         r.raise_for_status()
 
-        # Se não for JSON, vamos mostrar um pedaço pra debug
         try:
             data = r.json()
         except Exception:
@@ -14,7 +13,6 @@ async def fetch_who_dons(base_url: str) -> list[dict]:
                 f"content-type={r.headers.get('content-type')} body={r.text[:200]!r}"
             )
 
-    # WHO costuma vir em formato {"value":[...]} (OData)
     if isinstance(data, dict) and "value" in data and isinstance(data["value"], list):
         return data["value"]
     if isinstance(data, list):

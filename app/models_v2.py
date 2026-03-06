@@ -7,29 +7,25 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
-
 from app.models import Base
-
 
 class EpiDimDisease(Base):
     __tablename__ = "epi_dim_disease"
-    id: Mapped[str] = mapped_column(String(50), primary_key=True)  # dengue, covid19, srag...
+    id: Mapped[str] = mapped_column(String(50), primary_key=True)
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     default_source: Mapped[str] = mapped_column(String(50), nullable=False)
     default_period: Mapped[str] = mapped_column(String(20), nullable=False, default="semanal")
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     notes: Mapped[str] = mapped_column(Text, nullable=True)
 
-
 class EpiDimSource(Base):
     __tablename__ = "epi_dim_source"
-    id: Mapped[str] = mapped_column(String(50), primary_key=True)  # infodengue, who_don, sivep_gripe...
+    id: Mapped[str] = mapped_column(String(50), primary_key=True)
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     update_frequency: Mapped[str] = mapped_column(String(30), nullable=False, default="semanal")
     base_url: Mapped[str] = mapped_column(String(500), nullable=True)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     license: Mapped[str] = mapped_column(String(200), nullable=True)
-
 
 class RawSivepGripeV2(Base):
     """
@@ -43,10 +39,10 @@ class RawSivepGripeV2(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     year: Mapped[int] = mapped_column(Integer, nullable=False)
-    ref_date: Mapped[date] = mapped_column(Date, nullable=False)  # data usada na janela incremental
-    geo_basis: Mapped[str] = mapped_column(String(20), nullable=False)  # residencia|notificacao
+    ref_date: Mapped[date] = mapped_column(Date, nullable=False)
+    geo_basis: Mapped[str] = mapped_column(String(20), nullable=False)
     municipio_ibge: Mapped[str] = mapped_column(String(50), nullable=False)
-    disease: Mapped[str] = mapped_column(String(50), nullable=False, default="srag")  # srag/covid19/influenza...
+    disease: Mapped[str] = mapped_column(String(50), nullable=False, default="srag")
     external_id: Mapped[str] = mapped_column(String(200), nullable=True)
     raw: Mapped[dict] = mapped_column(JSONB, nullable=False)
     hash: Mapped[str] = mapped_column(String(64), nullable=False)
@@ -57,7 +53,6 @@ class RawSivepGripeV2(Base):
         Index("ix_raw_sivep_q1", "geo_basis", "municipio_ibge", "ref_date"),
         Index("ix_raw_sivep_q2", "year", "ref_date"),
     )
-
 
 class EpiTrustedSeries(Base):
     """
@@ -72,15 +67,15 @@ class EpiTrustedSeries(Base):
     source: Mapped[str] = mapped_column(String(50), nullable=False)
     metric: Mapped[str] = mapped_column(String(50), nullable=False)
 
-    granularity: Mapped[str] = mapped_column(String(20), nullable=False)  # municipio|uf|br
+    granularity: Mapped[str] = mapped_column(String(20), nullable=False)
     geo_basis: Mapped[str] = mapped_column(String(20), nullable=False, default="residencia")
     uf: Mapped[str] = mapped_column(String(2), nullable=True)
     municipio_ibge: Mapped[str] = mapped_column(String(50), nullable=True)
 
     year: Mapped[int] = mapped_column(Integer, nullable=False)
     epiweek: Mapped[int] = mapped_column(Integer, nullable=False)
-    period: Mapped[str] = mapped_column(String(20), nullable=False)        # 2026-W07
-    date_ref: Mapped[date] = mapped_column(Date, nullable=False)           # segunda-feira da semana ISO
+    period: Mapped[str] = mapped_column(String(20), nullable=False)
+    date_ref: Mapped[date] = mapped_column(Date, nullable=False)
 
     value: Mapped[float] = mapped_column(Numeric, nullable=False)
     value_type: Mapped[str] = mapped_column(String(20), nullable=False, default="integer")
@@ -138,7 +133,7 @@ class RawSinan(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     year: Mapped[int] = mapped_column(Integer, nullable=False)
     ref_date: Mapped[date] = mapped_column(Date, nullable=False)
-    geo_basis: Mapped[str] = mapped_column(String(20), nullable=False)  # residencia|notificacao
+    geo_basis: Mapped[str] = mapped_column(String(20), nullable=False)
     municipio_ibge: Mapped[str] = mapped_column(String(50), nullable=False)
     disease: Mapped[str] = mapped_column(String(50), nullable=False)
 
@@ -153,7 +148,6 @@ class RawSinan(Base):
         Index("ix_raw_sinan_q2", "disease", "ref_date"),
         Index("ix_raw_sinan_q3", "year", "ref_date"),
     )
-
 
 class RawSim(Base):
     """

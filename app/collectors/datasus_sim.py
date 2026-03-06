@@ -3,11 +3,9 @@ import json
 import uuid
 from datetime import date
 from typing import Any, Dict
-
 import httpx
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
-
 
 def sha256_dict(d: Dict[str, Any]) -> str:
     raw = json.dumps(d, sort_keys=True, ensure_ascii=False).encode("utf-8")

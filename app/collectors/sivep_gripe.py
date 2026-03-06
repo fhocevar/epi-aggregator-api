@@ -3,16 +3,13 @@ import json
 import uuid
 from datetime import date
 from typing import Any, Dict, Iterable, Optional
-
 import httpx
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-
 def sha256_dict(d: Dict[str, Any]) -> str:
     raw = json.dumps(d, sort_keys=True, ensure_ascii=False).encode("utf-8")
     return hashlib.sha256(raw).hexdigest()
-
 
 async def ingest_sivep_gripe(
     db: AsyncSession,
@@ -26,7 +23,7 @@ async def ingest_sivep_gripe(
 ) -> int:
     """
     MVP de ingestão:
-    - baixa de um endpoint/arquivo que você disponibilizar (URL configurável)
+    - baixa de um endpoint/arquivo (URL configurável)
     - espera JSON em lista de registros agregáveis
     - grava em raw_sivep_gripe idempotente via (geo_basis, hash)
 
@@ -39,7 +36,7 @@ async def ingest_sivep_gripe(
       ... (qualquer coisa extra)
     }
 
-    Você pode adaptar o parser quando definir a fonte real (OpenDataSUS CSV, etc.).
+    Adaptar o parser quando definir a fonte real (OpenDataSUS CSV, etc.).
     """
     if geo_basis not in ("residencia", "notificacao"):
         raise ValueError("geo_basis deve ser residencia|notificacao")

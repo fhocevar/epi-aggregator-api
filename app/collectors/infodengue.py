@@ -63,7 +63,6 @@ def normalize_infodengue_row(row: dict, disease: str, geo_code: str) -> dict:
       week_start_date (data_iniSE)
       pop
     """
-    # SE pode vir como 202140 (YYYYWW) no CSV/JSON (index SE).
     se = row.get("SE") or row.get("se") or row.get("epiweek") or row.get("EW")
     se_int = _to_int(se)
 
@@ -71,14 +70,12 @@ def normalize_infodengue_row(row: dict, disease: str, geo_code: str) -> dict:
     epiweek = None
 
     if se_int and se_int > 10000:
-        # ex.: 202140
         year = se_int // 100
         epiweek = se_int % 100
     else:
         epiweek = _to_int(se_int)
 
     week_start = row.get("data_iniSE") or row.get("data_inise") or row.get("week_start")
-    # Mantemos como string no raw; se quiser converter, dá pra converter depois.
 
     mapped = {
         "disease": disease,
@@ -98,9 +95,7 @@ def normalize_infodengue_row(row: dict, disease: str, geo_code: str) -> dict:
         "raw": row,
     }
 
-    # valida mínima
     if mapped["year"] is None or mapped["epiweek"] is None:
-        # não explode: guarda algo detectável no raw
         mapped["year"] = mapped["year"] or 0
         mapped["epiweek"] = mapped["epiweek"] or 0
 

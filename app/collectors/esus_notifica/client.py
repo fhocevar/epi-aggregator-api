@@ -1,8 +1,6 @@
 from __future__ import annotations
-
 from typing import Any
 import httpx
-
 
 class EsusNotificaClient:
     def __init__(self, *, base_url: str, username: str, password: str, timeout_seconds: int = 60):

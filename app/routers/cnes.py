@@ -1,15 +1,12 @@
 from __future__ import annotations
-
 from fastapi import APIRouter, Query
 from sqlalchemy import select, func, and_, cast, String
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-
 from app.settings import settings
 from app.demas_models import DemasRaw
 
 router = APIRouter(prefix="/cnes", tags=["CNES (DEMAS)"])
-
 
 def _session_factory() -> async_sessionmaker[AsyncSession]:
     db_url = getattr(settings, "database_url", None) or getattr(settings, "DATABASE_URL", None)
@@ -18,11 +15,8 @@ def _session_factory() -> async_sessionmaker[AsyncSession]:
     engine = create_async_engine(db_url, pool_pre_ping=True)
     return async_sessionmaker(engine, expire_on_commit=False)
 
-
 def _json_text(payload_col, key: str):
-    # payload->>'key'
     return payload_col.op("->>")(key)
-
 
 @router.get("/estabelecimentos")
 async def cnes_estabelecimentos(
@@ -47,7 +41,6 @@ async def cnes_estabelecimentos(
     offset = page * size
     sf = _session_factory()
 
-    # coluna JSONB
     payload = cast(DemasRaw.payload, JSONB)
 
     conds = [DemasRaw.endpoint_name == "cnes_estabelecimentos"]
@@ -89,7 +82,6 @@ async def cnes_estabelecimentos(
 
     if nome:
         nome = nome.strip()
-        # ILIKE em campos prováveis
         name_expr = func.coalesce(
             _json_text(payload, "nome"),
             _json_text(payload, "no_fantasia"),
@@ -101,7 +93,6 @@ async def cnes_estabelecimentos(
 
     if tipo:
         tipo = tipo.strip()
-        # depende do payload; tentamos chaves comuns
         tipo_expr = func.coalesce(
             _json_text(payload, "tipo"),
             _json_text(payload, "tp_unidade"),
@@ -126,7 +117,6 @@ async def cnes_estabelecimentos(
         )
         rows = (await session.execute(q)).scalars().all()
 
-    # retorno "enxuto" + payload completo
     def pick_name(p: dict) -> str | None:
         for k in ("nome", "no_fantasia", "nome_fantasia", "razao_social", "no_razao_social"):
             v = p.get(k)
@@ -157,7 +147,6 @@ async def cnes_estabelecimentos(
         )
 
     return {"page": page, "size": size, "total_items": int(total), "items": items}
-
 
 @router.get("/estabelecimentos/{cnes}")
 async def cnes_estabelecimento_detail(cnes: str):
@@ -201,7 +190,6 @@ async def cnes_estabelecimento_detail(cnes: str):
             "payload": r.payload,
         },
     }
-
 
 @router.get("/autocomplete")
 async def cnes_autocomplete(

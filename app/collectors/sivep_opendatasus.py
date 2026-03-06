@@ -1,22 +1,18 @@
 # app/collectors/sivep_opendatasus.py
 from __future__ import annotations
-
 import csv
 import hashlib
 import json
 import uuid
 from datetime import date, datetime
 from typing import Dict, Optional
-
 import httpx
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-
 def _sha256_dict(d: Dict) -> str:
     raw = json.dumps(d, sort_keys=True, ensure_ascii=False).encode("utf-8")
     return hashlib.sha256(raw).hexdigest()
-
 
 def _parse_date_any(v: str) -> Optional[date]:
     if not v:
@@ -28,7 +24,6 @@ def _parse_date_any(v: str) -> Optional[date]:
         except Exception:
             pass
     return None
-
 
 async def ingest_sivep_srag_opendatasus(
     db: AsyncSession,
@@ -100,7 +95,6 @@ async def ingest_sivep_srag_opendatasus(
                 if not municipio:
                     continue
 
-                # hash “estável” para idempotência
                 minimal = {
                     "year": year,
                     "geo_basis": geo_basis,

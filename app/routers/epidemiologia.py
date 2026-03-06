@@ -1,12 +1,10 @@
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select, func, desc
 from sqlalchemy.ext.asyncio import AsyncSession
-
 from app.db import get_db
 from app.models import Bulletin, EpiAlert, CasesWeekly, IndicatorsWeekly
 
 router = APIRouter(prefix="/epidemiologia", tags=["Epidemiologia"])
-
 
 @router.get("/boletins")
 async def list_boletins(
@@ -44,7 +42,6 @@ async def list_boletins(
             for x in items
         ],
     }
-
 
 @router.get("/alertas")
 async def list_alertas(
@@ -127,8 +124,6 @@ async def list_casos(
             for r in rows
         ],
     }
-
-
 
 @router.get("/indicadores")
 async def list_indicadores(

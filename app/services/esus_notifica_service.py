@@ -1,18 +1,13 @@
 from __future__ import annotations
-
 from typing import Callable
-
 from sqlalchemy.ext.asyncio import AsyncSession
-
-from app.models import RawSivepGripe  # <<< trocou models_v2 -> models
+from app.models import RawSivepGripe
 from app.collectors.esus_notifica.client import EsusNotificaClient
 from app.collectors.esus_notifica.collector import EsusNotificaCollector
 from app.normalizers.esus_notifica.base import EsusNotificaNormalizer
 from app.db_bulk import bulk_insert_on_conflict_do_nothing_chunked
 
-
 SessionFactory = Callable[[], AsyncSession]
-
 
 class EsusNotificaService:
     def __init__(

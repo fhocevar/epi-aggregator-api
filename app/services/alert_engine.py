@@ -1,18 +1,14 @@
 import hashlib
 from datetime import datetime, timezone, timedelta
-
 from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
-
 from app.models import CasesWeekly, NotificationTarget
 from app.crud import get_dedup, upsert_dedup, create_generated_alert
 from app.services.notifier import send_notification
 
-
 def fp(*parts: str) -> str:
     raw = "|".join(parts).encode("utf-8")
     return hashlib.sha256(raw).hexdigest()[:40]
-
 
 def severity_from_ratio(ratio: float) -> str:
     if ratio >= 2.0:
@@ -22,7 +18,6 @@ def severity_from_ratio(ratio: float) -> str:
     if ratio >= 1.3:
         return "warning"
     return "info"
-
 
 async def run_alert_engine_for_city(
     db: AsyncSession,
@@ -38,7 +33,6 @@ async def run_alert_engine_for_city(
       - notifica via NotificationTarget (Teams/Webhook)
     """
 
-    # pega últimas 6 semanas (1 atual + 4 baseline + 1 extra)
     q = await db.execute(
         select(CasesWeekly)
         .where(
@@ -54,14 +48,13 @@ async def run_alert_engine_for_city(
         return []
 
     latest = rows[0]
-    prev_weeks = rows[1:5]  # baseline (até 4)
+    prev_weeks = rows[1:5]
 
     latest_cases = latest.cases or 0
     base_vals = [(r.cases or 0) for r in prev_weeks if r.cases is not None]
 
     alerts: list[dict] = []
 
-    # A) threshold
     if latest_cases >= threshold_week_cases:
         sev = "high" if latest_cases >= threshold_week_cases * 2 else "warning"
         alerts.append(
@@ -76,7 +69,6 @@ async def run_alert_engine_for_city(
             }
         )
 
-    # B) growth ratio
     if base_vals:
         base_avg = sum(base_vals) / max(len(base_vals), 1)
         ratio = (latest_cases / base_avg) if base_avg > 0 else (999.0 if latest_cases > 0 else 1.0)
@@ -100,11 +92,9 @@ async def run_alert_engine_for_city(
     if not alerts:
         return []
 
-    # Carrega destinos de notificação uma vez (evita query repetida)
     nq = await db.execute(select(NotificationTarget).where(NotificationTarget.enabled == True))
     notification_targets = nq.scalars().all()
 
-    # dedupe + grava + notifica
     created: list[dict] = []
     now = datetime.now(timezone.utc)
 
@@ -119,7 +109,6 @@ async def run_alert_engine_for_city(
             if now - last < timedelta(minutes=cooldown_minutes):
                 continue
 
-        # 1) grava alerta gerado
         await create_generated_alert(
             db,
             dict(
@@ -138,10 +127,8 @@ async def run_alert_engine_for_city(
             ),
         )
 
-        # 2) grava dedupe/cooldown
         await upsert_dedup(db, fingerprint, now)
 
-        # 3) notifica (sem derrubar o engine se falhar)
         alert_payload = {
             "source": "GENERATED",
             "severity": a["severity"],
@@ -159,7 +146,6 @@ async def run_alert_engine_for_city(
             try:
                 await send_notification(t, alert_payload)
             except Exception:
-                # Evita quebrar o job por erro de webhook/Teams
                 pass
 
         created.append(a)

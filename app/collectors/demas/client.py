@@ -7,7 +7,6 @@ from typing import Any, AsyncIterator
 import asyncio
 import httpx
 
-
 @dataclass
 class DemasClient:
     """
@@ -23,9 +22,8 @@ class DemasClient:
         self.base_url = self.base_url.rstrip("/")
 
     def _make_http(self) -> httpx.AsyncClient:
-        # ⚠️ timeout "cirúrgico": evita ficar 49 min preso
         timeout = httpx.Timeout(
-            timeout=min(self.timeout_seconds, 20),  # teto global por request
+            timeout=min(self.timeout_seconds, 20),
             connect=5.0,
             read=min(self.timeout_seconds, 15),
             write=10.0,
@@ -39,7 +37,7 @@ class DemasClient:
             limits=limits,
             headers={"Accept": "application/json"},
             follow_redirects=True,
-            trust_env=False,  # ignora HTTP(S)_PROXY do Windows/corp
+            trust_env=False,
         )
 
     async def ping(self) -> dict[str, Any]:
@@ -49,7 +47,6 @@ class DemasClient:
         """
         async with self._make_http() as http:
             try:
-                # endpoint que você já testou no health antes
                 r = await http.get(
                     "/macrorregiao-e-regiao-de-saude/municipio",
                     params={"limit": 1, "offset": 0},
@@ -62,12 +59,10 @@ class DemasClient:
                 return {"ok": False, "error_type": type(e).__name__, "error": str(e)[:200]}
 
     async def _get_with_retries(self, http: httpx.AsyncClient, path: str, params: dict[str, Any]) -> Any:
-        # 3 tentativas rápidas. Se for 502/503/504, aborta cedo.
         last_err: Exception | None = None
         for attempt in range(3):
             try:
                 r = await http.get(path, params=params)
-                # se é proxy/gateway quebrado, não insiste por minutos
                 if r.status_code in (502, 503, 504):
                     raise httpx.HTTPStatusError(
                         f"Upstream instável ({r.status_code})",
@@ -79,7 +74,6 @@ class DemasClient:
             except (httpx.ReadTimeout, httpx.ConnectTimeout) as e:
                 last_err = e
             except httpx.HTTPStatusError as e:
-                # 502/503/504: aborta já
                 if e.response is not None and e.response.status_code in (502, 503, 504):
                     raise
                 last_err = e
@@ -97,9 +91,9 @@ class DemasClient:
         base_params: dict[str, Any] | None = None,
         limit: int = 20,
         start_offset: int = 0,
-        max_pages: int = 200,  # ✅ não deixa infinito
+        max_pages: int = 200,
         list_keys: tuple[str, ...] = ("parametros", "items", "data", "results", "macrorregiao_regiao_saude_municipios"),
-        hard_deadline_seconds: int = 20,  # ✅ deadline por endpoint/dataset
+        hard_deadline_seconds: int = 20,
     ) -> AsyncIterator[dict[str, Any]]:
         base_params = dict(base_params or {})
         offset = int(base_params.pop("offset", start_offset))
@@ -110,13 +104,11 @@ class DemasClient:
                 params["limit"] = int(limit)
                 params["offset"] = int(offset)
 
-                # ✅ deadline hard (se travar, aborta)
                 data = await asyncio.wait_for(
                     self._get_with_retries(http, path, params),
                     timeout=hard_deadline_seconds,
                 )
 
-                # lista direta
                 if isinstance(data, list):
                     if not data:
                         return
@@ -134,7 +126,6 @@ class DemasClient:
                         items = v
                         break
 
-                # fallback: primeira lista encontrada
                 if items is None:
                     for v in data.values():
                         if isinstance(v, list):
@@ -150,5 +141,4 @@ class DemasClient:
                 if len(items) < limit:
                     return
 
-                # No DEMAS, offset parece ser página (0,1,2...)
                 offset += 1

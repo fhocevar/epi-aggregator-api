@@ -1,11 +1,8 @@
 from __future__ import annotations
-
 import re
 from datetime import date
 from typing import Any
-
 from app.normalizers.demas.base import _hash_dict, _pick_first, _to_date
-
 
 def _clean_uf(v: Any) -> str | None:
     if v is None:
@@ -13,15 +10,12 @@ def _clean_uf(v: Any) -> str | None:
     s = str(v).strip().upper()
     return s or None
 
-
 def _clean_municipio_ibge(v: Any) -> str | None:
     if v is None:
         return None
     s = str(v).strip()
-    # mantém só dígitos (IBGE geralmente 6/7)
     s = re.sub(r"\D+", "", s)
     return s or None
-
 
 def _parse_epiweek(v: Any) -> tuple[int | None, int | None]:
     """
@@ -38,18 +32,15 @@ def _parse_epiweek(v: Any) -> tuple[int | None, int | None]:
     if not s:
         return (None, None)
 
-    # AAAASS
     if s.isdigit() and len(s) == 6:
         y = int(s[:4])
         w = int(s[4:])
         return (y, w)
 
-    # só semana
     if s.isdigit():
         return (None, int(s))
 
     return (None, None)
-
 
 class DemasNormalizer:
     """
@@ -74,13 +65,10 @@ class DemasNormalizer:
             or date.today()
         )
 
-        # ano / semana (pode vir como AAAASS)
         raw_year = _pick_first(payload, ["nu_ano", "ano", "year"])
         raw_epiweek = _pick_first(payload, ["sem_not", "sem_pri", "semana", "epiweek"])
-
         y_from_week, w = _parse_epiweek(raw_epiweek)
 
-        # year: prioridade para raw_year se for número; senão tenta do epiweek AAAASS; senão event_date.year
         year: int
         if raw_year is not None and str(raw_year).strip().isdigit():
             year = int(str(raw_year).strip())
@@ -89,7 +77,6 @@ class DemasNormalizer:
         else:
             year = int(event_date.year)
 
-        # UF / município
         uf = _clean_uf(_pick_first(payload, ["sg_uf_not", "sg_uf", "uf", "UF"]))
         municipio_ibge = _clean_municipio_ibge(
             _pick_first(payload, ["id_municip", "id_mn_resi", "municipio_ibge", "municipio", "co_municipio"])

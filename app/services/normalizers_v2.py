@@ -5,13 +5,10 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 def iso_week_start(yyyy: int, ww: int) -> date:
-    # segunda-feira da semana ISO
     return date.fromisocalendar(yyyy, ww, 1)
-
 
 def period_week(yyyy: int, ww: int) -> str:
     return f"{yyyy}-W{ww:02d}"
-
 
 async def normalize_sivep_to_trusted(
     db: AsyncSession,
@@ -31,7 +28,7 @@ async def normalize_sivep_to_trusted(
 
     # 1) agrega raw em semana ISO
     # OBS: aqui assumimos que raw.ref_date já é uma data válida do registro (ex: dt_sintomas ou dt_notificacao).
-    # Se você guardar outra data no raw, ajuste aqui.
+    # Se for guardar outra data no raw, ajuste aqui.
     agg_sql = text("""
     WITH base AS (
       SELECT
@@ -59,7 +56,6 @@ async def normalize_sivep_to_trusted(
     if not rows:
         return 0
 
-    # 2) upsert no trusted
     upsert_sql = text("""
     INSERT INTO epi_trusted_series (
       id, disease, source, metric, granularity, geo_basis,
@@ -112,7 +108,6 @@ async def normalize_sivep_to_trusted(
 
     await db.commit()
 
-    # 3) atualizar coverage (municipio por municipio)
     coverage_sql = text("""
     INSERT INTO epi_trusted_coverage (
       id, disease, source, metric, granularity, geo_basis,
@@ -138,7 +133,6 @@ async def normalize_sivep_to_trusted(
 
     await db.execute(coverage_sql, {"geo_basis": geo_basis})
     await db.commit()
-
     return inserted
 
 async def normalize_sinan_to_trusted(
@@ -235,7 +229,6 @@ async def normalize_sinan_to_trusted(
 
     await db.commit()
 
-    # coverage
     coverage_sql = text("""
     INSERT INTO epi_trusted_coverage (
       id, disease, source, metric, granularity, geo_basis,
@@ -262,7 +255,6 @@ async def normalize_sinan_to_trusted(
     await db.commit()
 
     return inserted
-
 
 async def normalize_sim_to_trusted(
     db: AsyncSession,
@@ -358,7 +350,6 @@ async def normalize_sim_to_trusted(
 
     await db.commit()
 
-    # coverage
     coverage_sql = text("""
     INSERT INTO epi_trusted_coverage (
       id, disease, source, metric, granularity, geo_basis,

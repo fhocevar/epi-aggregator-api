@@ -1,8 +1,6 @@
 # app/services/demas_sources.py
 from __future__ import annotations
-
 from dataclasses import dataclass
-
 
 @dataclass(frozen=True)
 class DemasSource:
@@ -11,8 +9,6 @@ class DemasSource:
     request_year: int | None = None
     normalize_events: bool = True
 
-
-# ✅ Fontes S3 (fallback) — URLs
 DEMAS_S3_SOURCES: list[DemasSource] = [
     DemasSource(
         key="sinan_dengue",
@@ -32,14 +28,12 @@ DEMAS_S3_SOURCES: list[DemasSource] = [
         request_year=2026,
         normalize_events=True,
     ),
-    # Febre Amarela é CSV direto (não zip)
     DemasSource(
         key="sinan_febre_amarela",
         url="https://s3.sa-east-1.amazonaws.com/ckan.saude.gov.br/Febre+Amarela/fa_casoshumanos_1994-2025.csv",
         request_year=2025,
         normalize_events=True,
     ),
-    # CNES / Leitos — não são “eventos epi” (normalizar não é útil)
     DemasSource(
         key="cnes_estabelecimentos",
         url="https://s3.sa-east-1.amazonaws.com/ckan.saude.gov.br/CNES/cnes_estabelecimentos_csv.zip",

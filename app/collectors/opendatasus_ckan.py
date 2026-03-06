@@ -1,11 +1,8 @@
 # app/collectors/opendatasus_ckan.py
 from __future__ import annotations
-
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
-
 import httpx
-
 
 @dataclass
 class CkanResource:
@@ -14,23 +11,19 @@ class CkanResource:
     format: str
     url: str
 
-
 class OpenDataSUSCkanClient:
     """
     CKAN Action API client (package_show), com fallback de hosts.
-
-    Na sua rede:
-      - ckan-dadosabertos.saude.gov.br NÃO resolve DNS (Errno 11001).
+    - ckan-dadosabertos.saude.gov.br NÃO resolve DNS (Errno 11001).
     Então evitamos depender dele e tentamos apenas hosts que resolvem,
     validando se /api/3/action existe via status_show.
     """
 
     DEFAULT_BASE_URLS = [
-        # este resolve no seu DNS
         "https://opendatasus.saude.gov.br",
         # alguns redirects caem aqui
         "https://dadosabertos.saude.gov.br",
-        # (não incluir ckan-dadosabertos... pq não resolve no seu DNS)
+        # (não incluir ckan-dadosabertos... pq não resolve DNS)
     ]
 
     def __init__(self, base_url: Optional[str] = None):
@@ -69,7 +62,7 @@ class OpenDataSUSCkanClient:
                     last_err = e
 
         raise RuntimeError(
-            "Não encontrei um host CKAN funcional via /api/3/action/status_show. "
+            "Não encontramos um host CKAN funcional via /api/3/action/status_show. "
             f"Tentados: {self.base_urls}. Último erro: {last_err}"
         )
 

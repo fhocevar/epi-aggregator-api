@@ -1,27 +1,21 @@
 from __future__ import annotations
-
 from datetime import datetime, timezone
-
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-
 from app.collectors.infodengue import fetch_infodengue_alertcity
 from app.collectors.who_don import fetch_who_dons
 from app.crud import upsert_bulletin, upsert_cases_weekly, upsert_indicators_weekly
 from app.models import IngestionTarget
 from app.services.alert_engine import run_alert_engine_for_city
 from app.settings import settings
-
 from app.services.normalizers import normalize_infodengue_row
-
 
 def build_scheduler(get_session_factory):
     scheduler = AsyncIOScheduler()
 
     async def sync_all():
-        async with get_session_factory() as db:  # AsyncSession
-            # WHO
+        async with get_session_factory() as db:
             try:
                 await sync_who(db)
                 await db.commit()
@@ -29,7 +23,6 @@ def build_scheduler(get_session_factory):
                 print("ERRO sync_who:", repr(e))
                 await db.rollback()
 
-            # InfoDengue
             try:
                 await sync_infodengue(db)
                 await db.commit()
@@ -37,7 +30,6 @@ def build_scheduler(get_session_factory):
                 print("ERRO sync_infodengue:", repr(e))
                 await db.rollback()
 
-            # Alert engine
             try:
                 await run_alerts(db)
                 await db.commit()
@@ -86,7 +78,6 @@ def build_scheduler(get_session_factory):
             if isinstance(published, str) and published.strip():
                 txt = published.strip().replace("Z", "+00:00")
 
-                # Se vier só YYYY-MM-DD, completa com hora
                 if len(txt) == 10 and txt[4] == "-" and txt[7] == "-":
                     txt = f"{txt}T00:00:00+00:00"
 
@@ -119,7 +110,7 @@ def build_scheduler(get_session_factory):
         )
         targets = q.scalars().all()
         if not targets:
-            return  # sem targets cadastrados
+            return
 
         for t in targets:
             rows = await fetch_infodengue_alertcity(
